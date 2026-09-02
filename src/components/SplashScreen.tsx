@@ -1,15 +1,16 @@
 import React, { useMemo } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
-import { AppTheme, useTheme } from '../theme';
+import { AppTheme, useIsDarkTheme, useTheme } from '../theme';
 
 export default function SplashScreen() {
   const theme = useTheme();
+  const isDark = useIsDarkTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
   return (
     <View style={styles.wrap}>
       <Image
-        source={require('../../assets/icon.png')}
+        source={isDark ? require('../../assets/icon-dark.png') : require('../../assets/icon-light.png')}
         style={styles.logo}
         resizeMode="contain"
       />
