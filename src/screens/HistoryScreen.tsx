@@ -9,6 +9,7 @@ import { endOfDay, formatFullDate, formatTimeOfDay, startOfDay } from '../cycleE
 import { getAvailableCycles } from '../cycleList';
 import { isSavingsTransaction, savingsActionOf } from '../savings';
 import { isCreditCardPayment, isCreditPurchase } from '../creditCard';
+import { isLendingTransaction, lendingActionOf } from '../lending';
 import { Transaction } from '../types';
 import { AppTheme, useTheme } from '../theme';
 import CyclePickerModal from '../components/CyclePickerModal';
@@ -33,6 +34,8 @@ export default function HistoryScreen() {
     categoryMap,
     deleteTransaction,
     updateTransaction,
+    borrowers,
+    addBorrower,
   } = useAppData();
   const [selectedCycle, setSelectedCycle] = useState<string>(currentCycleIdentifier);
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -129,6 +132,12 @@ export default function HistoryScreen() {
             const meta = categoryMap[item.category] ?? UNKNOWN_CATEGORY;
             const isSavings = isSavingsTransaction(item);
             const isWithdrawal = isSavings && savingsActionOf(item) === 'withdrawal';
+            const isLending = isLendingTransaction(item);
+            const isRepaid = isLending && lendingActionOf(item) === 'repaid';
+            const borrowerName = isLending
+              ? borrowers.find((b) => b.id === item.borrowerId)?.name
+              : undefined;
+            const isMoneyBack = isWithdrawal || isRepaid;
             return (
               <Swipeable
                 renderRightActions={() => (
@@ -152,13 +161,15 @@ export default function HistoryScreen() {
                     <Text style={styles.rowCategory}>
                       {meta.label}
                       {isSavings ? ` — ${isWithdrawal ? 'Withdrawal' : 'Deposit'}` : ''}
+                      {isLending ? ` — ${isRepaid ? 'Repaid' : 'Lent'}` : ''}
                       {isCreditCardPayment(item) ? ' — Payment' : ''}
                       {isCreditPurchase(item) ? ' · Credit' : ''}
                     </Text>
+                    {borrowerName ? <Text style={styles.rowNote}>{borrowerName}</Text> : null}
                     {item.note ? <Text style={styles.rowNote}>{item.note}</Text> : null}
                     <Text style={styles.rowTime}>{formatTimeOfDay(new Date(item.timestamp))}</Text>
                   </View>
-                  <Text style={[styles.rowAmount, isWithdrawal && styles.rowAmountWithdrawal]}>
+                  <Text style={[styles.rowAmount, isMoneyBack && styles.rowAmountWithdrawal]}>
                     {formatPeso(item.amount)}
                   </Text>
                   <TouchableOpacity
@@ -202,6 +213,8 @@ export default function HistoryScreen() {
       <EditTransactionModal
         transaction={editingTransaction}
         categories={categories}
+        borrowers={borrowers}
+        onAddBorrower={addBorrower}
         onSave={(id, input) => updateTransaction(id, input)}
         onClose={() => setEditingTransaction(null)}
       />

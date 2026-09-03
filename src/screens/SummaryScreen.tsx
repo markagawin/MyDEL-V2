@@ -13,8 +13,10 @@ import CustomRangeBar from '../components/CustomRangeBar';
 import ViewModeToggle, { ViewMode } from '../components/ViewModeToggle';
 import CalendarSummaryModal from '../components/CalendarSummaryModal';
 import SavingsSummaryModal from '../components/SavingsSummaryModal';
+import LendingSummaryModal from '../components/LendingSummaryModal';
 import { isSavingsTransaction } from '../savings';
 import { isCreditCardPayment } from '../creditCard';
+import { isLendingTransaction } from '../lending';
 import { CategoryKey, Transaction } from '../types';
 
 export default function SummaryScreen() {
@@ -29,6 +31,8 @@ export default function SummaryScreen() {
     categoryMap,
     totalSaved,
     creditCardBalance,
+    totalLent,
+    borrowers,
   } = useAppData();
   const [selectedCycle, setSelectedCycle] = useState<string>(currentCycleIdentifier);
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -36,6 +40,7 @@ export default function SummaryScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>('cycle');
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [savingsVisible, setSavingsVisible] = useState(false);
+  const [lendingVisible, setLendingVisible] = useState(false);
   const [customStart, setCustomStart] = useState<Date>(currentCycleRange.start);
   const [customEnd, setCustomEnd] = useState<Date>(new Date());
 
@@ -73,10 +78,16 @@ export default function SummaryScreen() {
   const breakdown = useMemo(() => {
     const totals = new Map<CategoryKey, number>();
     for (const tx of transactions) {
-      // Savings is a transfer, not spending. A credit card payment is excluded here too — the
-      // purchase it settles is already counted under its real category (Food, Gas, etc.) via
-      // its paymentMethod tag; counting the payment as well here would double it.
-      if (!inRange(tx) || isSavingsTransaction(tx) || isCreditCardPayment(tx)) continue;
+      // Savings and lending are transfers, not spending. A credit card payment is excluded here
+      // too — the purchase it settles is already counted under its real category (Food, Gas,
+      // etc.) via its paymentMethod tag; counting the payment as well here would double it.
+      if (
+        !inRange(tx) ||
+        isSavingsTransaction(tx) ||
+        isCreditCardPayment(tx) ||
+        isLendingTransaction(tx)
+      )
+        continue;
       totals.set(tx.category, (totals.get(tx.category) ?? 0) + tx.amount);
     }
     const total = Array.from(totals.values()).reduce((s, v) => s + v, 0);
@@ -173,6 +184,14 @@ export default function SummaryScreen() {
           </View>
           <Text style={styles.savingsValue}>{formatPeso(creditCardBalance)}</Text>
         </View>
+
+        <TouchableOpacity style={styles.savingsCard} onPress={() => setLendingVisible(true)}>
+          <View>
+            <Text style={styles.savingsLabel}>🤝 Money Lent Out</Text>
+            <Text style={styles.savingsHint}>Across everyone, all time</Text>
+          </View>
+          <Text style={styles.savingsValue}>{formatPeso(totalLent)}</Text>
+        </TouchableOpacity>
 
         {highest ? (
           <View style={styles.highlightCard}>
@@ -306,6 +325,13 @@ export default function SummaryScreen() {
         visible={savingsVisible}
         transactions={transactions}
         onClose={() => setSavingsVisible(false)}
+      />
+
+      <LendingSummaryModal
+        visible={lendingVisible}
+        transactions={transactions}
+        borrowers={borrowers}
+        onClose={() => setLendingVisible(false)}
       />
     </SafeAreaView>
   );

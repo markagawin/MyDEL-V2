@@ -12,6 +12,14 @@ export type SavingsAction = 'deposit' | 'withdrawal';
 /** 'credit' means this purchase was charged to the card, not paid in cash yet. */
 export type PaymentMethod = 'cash' | 'credit';
 
+/** 'lend' is money going out to someone; 'repaid' is them paying it back. */
+export type LendingAction = 'lend' | 'repaid';
+
+export interface Borrower {
+  id: string;
+  name: string;
+}
+
 export interface Transaction {
   id: string;
   amount: number;
@@ -22,6 +30,8 @@ export interface Transaction {
   recurringSourceId?: string; // set when auto-logged from a RecurringEntry
   savingsAction?: SavingsAction; // only meaningful when category === 'savings'; undefined on older entries means 'deposit'
   paymentMethod?: PaymentMethod; // 'credit' only when charged to the card; absent/'cash' otherwise
+  lendingAction?: LendingAction; // only meaningful when category === 'lending'; undefined means 'lend'
+  borrowerId?: string; // only meaningful when category === 'lending'
 }
 
 export interface RecurringEntry {
@@ -60,4 +70,5 @@ export interface BackupData {
   recurringEntries: RecurringEntry[];
   profileName?: string;
   profilePhotoUri?: string | null;
+  borrowers?: Borrower[];
 }

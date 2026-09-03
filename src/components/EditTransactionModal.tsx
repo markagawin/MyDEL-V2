@@ -10,17 +10,21 @@ import {
   View,
 } from 'react-native';
 import { CategoryMeta } from '../categories';
-import { CategoryKey, PaymentMethod, SavingsAction, Transaction } from '../types';
+import { Borrower, CategoryKey, LendingAction, PaymentMethod, SavingsAction, Transaction } from '../types';
 import { formatFullDate, sameDay } from '../cycleEngine';
 import { SAVINGS_CATEGORY_KEY } from '../savings';
 import { CREDIT_CARD_CATEGORY_KEY } from '../creditCard';
+import { LENDING_CATEGORY_KEY } from '../lending';
 import { AppTheme, useTheme } from '../theme';
 import { noWebOutline } from '../webInputStyle';
 import DatePickerModal from './DatePickerModal';
+import AddBorrowerModal from './AddBorrowerModal';
 
 interface Props {
   transaction: Transaction | null;
   categories: CategoryMeta[];
+  borrowers: Borrower[];
+  onAddBorrower: (name: string) => string;
   onSave: (
     id: string,
     input: {
@@ -30,17 +34,29 @@ interface Props {
       timestamp: Date;
       savingsAction?: SavingsAction;
       paymentMethod?: PaymentMethod;
+      lendingAction?: LendingAction;
+      borrowerId?: string;
     }
   ) => void;
   onClose: () => void;
 }
 
-export default function EditTransactionModal({ transaction, categories, onSave, onClose }: Props) {
+export default function EditTransactionModal({
+  transaction,
+  categories,
+  borrowers,
+  onAddBorrower,
+  onSave,
+  onClose,
+}: Props) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [amountText, setAmountText] = useState('');
   const [category, setCategory] = useState<CategoryKey | null>(null);
   const [savingsAction, setSavingsAction] = useState<SavingsAction>('deposit');
+  const [lendingAction, setLendingAction] = useState<LendingAction>('lend');
+  const [borrowerId, setBorrowerId] = useState<string | null>(null);
+  const [addBorrowerModalVisible, setAddBorrowerModalVisible] = useState(false);
   const [creditGateActive, setCreditGateActive] = useState(false);
   const [note, setNote] = useState('');
   const [entryDate, setEntryDate] = useState(() => new Date());
@@ -51,6 +67,8 @@ export default function EditTransactionModal({ transaction, categories, onSave, 
       setAmountText(String(transaction.amount));
       setCategory(transaction.category);
       setSavingsAction(transaction.savingsAction ?? 'deposit');
+      setLendingAction(transaction.lendingAction ?? 'lend');
+      setBorrowerId(transaction.borrowerId ?? null);
       setCreditGateActive(
         transaction.paymentMethod === 'credit' || transaction.category === CREDIT_CARD_CATEGORY_KEY
       );
@@ -59,11 +77,16 @@ export default function EditTransactionModal({ transaction, categories, onSave, 
     }
   }, [transaction]);
 
+  const isLendingCategorySelected = category === LENDING_CATEGORY_KEY;
+
   const visibleCategories = useMemo(() => {
     if (!creditGateActive) return categories;
     const creditCardMeta = categories.find((c) => c.key === CREDIT_CARD_CATEGORY_KEY);
     const realCategories = categories.filter(
-      (c) => c.key !== SAVINGS_CATEGORY_KEY && c.key !== CREDIT_CARD_CATEGORY_KEY
+      (c) =>
+        c.key !== SAVINGS_CATEGORY_KEY &&
+        c.key !== CREDIT_CARD_CATEGORY_KEY &&
+        c.key !== LENDING_CATEGORY_KEY
     );
     return creditCardMeta
       ? [...realCategories, { ...creditCardMeta, label: 'Pay Credit Card' }]
@@ -78,7 +101,11 @@ export default function EditTransactionModal({ transaction, categories, onSave, 
   );
 
   const amountValue = parseFloat(amountText);
-  const canSave = !Number.isNaN(amountValue) && amountValue > 0 && category !== null;
+  const canSave =
+    !Number.isNaN(amountValue) &&
+    amountValue > 0 &&
+    category !== null &&
+    (!isLendingCategorySelected || borrowerId !== null);
 
   const handleSave = () => {
     if (!canSave || category === null || !transaction) return;
@@ -94,6 +121,7 @@ export default function EditTransactionModal({ transaction, categories, onSave, 
     );
     const isCreditCardPaymentEntry = category === CREDIT_CARD_CATEGORY_KEY;
     const isCreditPurchaseEntry = creditGateActive && !isCreditCardPaymentEntry;
+    const isLending = category === LENDING_CATEGORY_KEY;
     onSave(transaction.id, {
       amount: amountValue,
       category,
@@ -101,6 +129,8 @@ export default function EditTransactionModal({ transaction, categories, onSave, 
       timestamp,
       savingsAction: category === SAVINGS_CATEGORY_KEY ? savingsAction : undefined,
       paymentMethod: isCreditPurchaseEntry ? 'credit' : undefined,
+      lendingAction: isLending ? lendingAction : undefined,
+      borrowerId: isLending ? borrowerId ?? undefined : undefined,
     });
     onClose();
   };
@@ -157,6 +187,8 @@ export default function EditTransactionModal({ transaction, categories, onSave, 
                       }
                       setCategory(cat.key);
                       setSavingsAction('deposit');
+                      setLendingAction('lend');
+                      setBorrowerId(null);
                     }}
                     style={[
                       styles.tile,
@@ -215,6 +247,74 @@ export default function EditTransactionModal({ transaction, categories, onSave, 
               </View>
             )}
 
+            {isLendingCategorySelected && (
+              <>
+                <View style={styles.savingsToggleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.savingsToggleOption,
+                      lendingAction === 'lend' && styles.savingsToggleOptionActive,
+                    ]}
+                    onPress={() => setLendingAction('lend')}
+                  >
+                    <Text
+                      style={[
+                        styles.savingsToggleText,
+                        lendingAction === 'lend' && styles.savingsToggleTextActive,
+                      ]}
+                    >
+                      Lend
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.savingsToggleOption,
+                      lendingAction === 'repaid' && styles.savingsToggleOptionActive,
+                    ]}
+                    onPress={() => setLendingAction('repaid')}
+                  >
+                    <Text
+                      style={[
+                        styles.savingsToggleText,
+                        lendingAction === 'repaid' && styles.savingsToggleTextActive,
+                      ]}
+                    >
+                      Repaid
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.fieldLabel}>PERSON</Text>
+                <View style={styles.borrowerRow}>
+                  {borrowers.map((b) => {
+                    const selected = borrowerId === b.id;
+                    return (
+                      <TouchableOpacity
+                        key={b.id}
+                        style={[styles.borrowerChip, selected && styles.borrowerChipSelected]}
+                        onPress={() => setBorrowerId(b.id)}
+                      >
+                        <Text
+                          style={[
+                            styles.borrowerChipText,
+                            selected && styles.borrowerChipTextSelected,
+                          ]}
+                        >
+                          {b.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  <TouchableOpacity
+                    style={[styles.borrowerChip, styles.addBorrowerChip]}
+                    onPress={() => setAddBorrowerModalVisible(true)}
+                  >
+                    <Text style={styles.addBorrowerChipText}>+ Add Person</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
             <Text style={styles.fieldLabel}>NOTE (OPTIONAL)</Text>
             <TextInput
               style={[styles.noteInput, noWebOutline]}
@@ -256,6 +356,12 @@ export default function EditTransactionModal({ transaction, categories, onSave, 
         maxDate={new Date()}
         onChange={setEntryDate}
         onClose={() => setDatePickerVisible(false)}
+      />
+
+      <AddBorrowerModal
+        visible={addBorrowerModalVisible}
+        onSave={(name) => setBorrowerId(onAddBorrower(name))}
+        onClose={() => setAddBorrowerModalVisible(false)}
       />
     </>
   );
@@ -347,6 +453,25 @@ const createStyles = (theme: AppTheme) =>
     savingsToggleOptionActive: { backgroundColor: theme.navy },
     savingsToggleText: { fontSize: 13, fontWeight: '600', color: theme.textMuted },
     savingsToggleTextActive: { color: '#FFFFFF' },
+    borrowerRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 14,
+    },
+    borrowerChip: {
+      borderRadius: 20,
+      borderWidth: 1.5,
+      borderColor: theme.border,
+      backgroundColor: theme.background,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+    },
+    borrowerChipSelected: { backgroundColor: theme.navy, borderColor: theme.navy },
+    borrowerChipText: { fontSize: 13, fontWeight: '600', color: theme.text },
+    borrowerChipTextSelected: { color: '#FFFFFF' },
+    addBorrowerChip: { borderStyle: 'dashed' },
+    addBorrowerChipText: { fontSize: 13, fontWeight: '600', color: theme.textMuted },
     noteInput: {
       backgroundColor: theme.background,
       borderRadius: 12,

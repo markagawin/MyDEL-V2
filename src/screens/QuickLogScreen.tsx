@@ -16,15 +16,17 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppData } from '../AppDataContext';
-import { CategoryKey, SavingsAction } from '../types';
+import { CategoryKey, LendingAction, SavingsAction } from '../types';
 import { formatPeso } from '../currency';
 import { formatFullDate, sameDay } from '../cycleEngine';
 import { SAVINGS_CATEGORY_KEY, isSavingsTransaction, savingsSignedAmount } from '../savings';
 import { CREDIT_CARD_CATEGORY_KEY, isCreditPurchase } from '../creditCard';
+import { LENDING_CATEGORY_KEY, isLendingTransaction, lendingSignedAmount } from '../lending';
 import { loadBannerViewState, saveBannerViewState } from '../storage';
 import { AppTheme, useTheme } from '../theme';
 import PaycheckModal from '../components/PaycheckModal';
 import AddCategoryModal from '../components/AddCategoryModal';
+import AddBorrowerModal from '../components/AddBorrowerModal';
 import DatePickerModal from '../components/DatePickerModal';
 import Toast from '../components/Toast';
 import { noWebOutline, webPanYOnly } from '../webInputStyle';
@@ -43,12 +45,17 @@ export default function QuickLogScreen() {
     deleteTransaction,
     setCurrentPaycheck,
     addCategory,
+    borrowers,
+    addBorrower,
     profileName,
     profilePhotoUri,
   } = useAppData();
   const [amountText, setAmountText] = useState('');
   const [category, setCategory] = useState<CategoryKey | null>(null);
   const [savingsAction, setSavingsAction] = useState<SavingsAction>('deposit');
+  const [lendingAction, setLendingAction] = useState<LendingAction>('lend');
+  const [borrowerId, setBorrowerId] = useState<string | null>(null);
+  const [addBorrowerModalVisible, setAddBorrowerModalVisible] = useState(false);
   // True once the Credit Card tile has been tapped from the top-level grid — swaps the grid to
   // "what was this for" (real categories + a Pay Credit Card option) so a credit purchase is
   // always explicitly tied to a real category, never left as a bare "Credit Card" entry.
@@ -182,27 +189,32 @@ export default function QuickLogScreen() {
 
   const cycleLabel = currentCycleRange.label;
 
-  // Net outflow for the current period: a savings deposit counts like any expense (money no
-  // longer available), but a withdrawal gives money back, so it's subtracted rather than added.
-  // A credit card purchase doesn't touch this at all — no cash has actually left yet, only the
-  // eventual "Pay Credit Card" entry does. This is what "Remaining of paycheck" and the
-  // progress bar are based on.
+  // Net outflow for the current period: a savings deposit, or lending money out, counts like an
+  // expense (money no longer available), while a withdrawal or a repayment gives money back, so
+  // it's subtracted rather than added. A credit card purchase doesn't touch this at all — no
+  // cash has actually left yet, only the eventual "Pay Credit Card" entry does. This is what
+  // "Remaining of paycheck" and the progress bar are based on.
   const periodTotal = useMemo(() => {
     return transactions
       .filter((t) => t.cycleIdentifier === currentCycleIdentifier && !isCreditPurchase(t))
-      .reduce((sum, t) => sum + (isSavingsTransaction(t) ? savingsSignedAmount(t) : t.amount), 0);
+      .reduce((sum, t) => {
+        if (isSavingsTransaction(t)) return sum + savingsSignedAmount(t);
+        if (isLendingTransaction(t)) return sum + lendingSignedAmount(t);
+        return sum + t.amount;
+      }, 0);
   }, [transactions, currentCycleIdentifier]);
 
-  // "Total spent so far" excludes savings (moving money, not spending it) and credit purchases
-  // (no cash gone yet) — but a "Pay Credit Card" entry counts normally, since that's the moment
-  // real cash actually leaves.
+  // "Total spent so far" excludes savings and lending (moving money, not spending it) and
+  // credit purchases (no cash gone yet) — but a "Pay Credit Card" entry counts normally, since
+  // that's the moment real cash actually leaves.
   const periodSpentTotal = useMemo(() => {
     return transactions
       .filter(
         (t) =>
           t.cycleIdentifier === currentCycleIdentifier &&
           !isSavingsTransaction(t) &&
-          !isCreditPurchase(t)
+          !isCreditPurchase(t) &&
+          !isLendingTransaction(t)
       )
       .reduce((sum, t) => sum + t.amount, 0);
   }, [transactions, currentCycleIdentifier]);
@@ -211,7 +223,13 @@ export default function QuickLogScreen() {
   const todaySpentTotal = useMemo(() => {
     const now = new Date();
     return transactions
-      .filter((t) => !isSavingsTransaction(t) && !isCreditPurchase(t) && sameDay(new Date(t.timestamp), now))
+      .filter(
+        (t) =>
+          !isSavingsTransaction(t) &&
+          !isCreditPurchase(t) &&
+          !isLendingTransaction(t) &&
+          sameDay(new Date(t.timestamp), now)
+      )
       .reduce((sum, t) => sum + t.amount, 0);
   }, [transactions]);
 
@@ -246,7 +264,9 @@ export default function QuickLogScreen() {
 
   const amountValue = parseFloat(amountText);
   const hasValidAmount = !Number.isNaN(amountValue) && amountValue > 0;
-  const canLog = hasValidAmount && category !== null;
+  const isLendingCategorySelected = category === LENDING_CATEGORY_KEY;
+  const canLog =
+    hasValidAmount && category !== null && (!isLendingCategorySelected || borrowerId !== null);
   const showCategoryPrompt = amountBlurred && hasValidAmount && category === null;
 
   const handleLog = () => {
@@ -255,12 +275,16 @@ export default function QuickLogScreen() {
     const loggedCategory = category;
     const loggedNote = note;
     const loggedSavingsAction = savingsAction;
+    const loggedLendingAction = lendingAction;
+    const loggedBorrowerId = borrowerId;
     const isSavings = loggedCategory === SAVINGS_CATEGORY_KEY;
+    const isLending = loggedCategory === LENDING_CATEGORY_KEY;
     const isCreditCardPaymentEntry = loggedCategory === CREDIT_CARD_CATEGORY_KEY;
     // Reached the credit gate and picked a real category: this is a purchase charged to the
     // card. Picking "Pay Credit Card" itself (loggedCategory === CREDIT_CARD_CATEGORY_KEY) is a
     // payment instead, not a purchase, so it isn't tagged as one.
     const isCreditPurchaseEntry = creditGateActive && !isCreditCardPaymentEntry;
+    const borrowerName = borrowers.find((b) => b.id === loggedBorrowerId)?.name ?? 'them';
 
     const now = new Date();
     const timestamp = new Date(
@@ -279,6 +303,8 @@ export default function QuickLogScreen() {
     setEntryDate(new Date());
     setSavingsAction('deposit');
     setCreditGateActive(false);
+    setLendingAction('lend');
+    setBorrowerId(null);
     amountInputRef.current?.blur();
 
     const newId = addTransaction({
@@ -288,6 +314,8 @@ export default function QuickLogScreen() {
       timestamp,
       savingsAction: isSavings ? loggedSavingsAction : undefined,
       paymentMethod: isCreditPurchaseEntry ? 'credit' : undefined,
+      lendingAction: isLending ? loggedLendingAction : undefined,
+      borrowerId: isLending ? loggedBorrowerId ?? undefined : undefined,
     });
 
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -296,11 +324,15 @@ export default function QuickLogScreen() {
         ? loggedSavingsAction === 'withdrawal'
           ? `${formatPeso(loggedAmount)} withdrawn from savings`
           : `${formatPeso(loggedAmount)} deposited to savings`
-        : isCreditCardPaymentEntry
-          ? `${formatPeso(loggedAmount)} paid toward credit card`
-          : isCreditPurchaseEntry
-            ? `${formatPeso(loggedAmount)} charged to credit card`
-            : `${formatPeso(loggedAmount)} added successfully`
+        : isLending
+          ? loggedLendingAction === 'repaid'
+            ? `${formatPeso(loggedAmount)} repaid by ${borrowerName}`
+            : `${formatPeso(loggedAmount)} lent to ${borrowerName}`
+          : isCreditCardPaymentEntry
+            ? `${formatPeso(loggedAmount)} paid toward credit card`
+            : isCreditPurchaseEntry
+              ? `${formatPeso(loggedAmount)} charged to credit card`
+              : `${formatPeso(loggedAmount)} added successfully`
     );
     setToastUndoId(newId);
     setToastVisible(true);
@@ -482,6 +514,8 @@ export default function QuickLogScreen() {
                     }
                     setCategory(selected ? null : cat.key);
                     setSavingsAction('deposit');
+                    setLendingAction('lend');
+                    setBorrowerId(null);
                   }}
                   style={[
                     styles.tile,
@@ -546,6 +580,74 @@ export default function QuickLogScreen() {
             </View>
           )}
 
+          {isLendingCategorySelected && (
+            <>
+              <View style={styles.savingsToggleRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.savingsToggleOption,
+                    lendingAction === 'lend' && styles.savingsToggleOptionActive,
+                  ]}
+                  onPress={() => setLendingAction('lend')}
+                >
+                  <Text
+                    style={[
+                      styles.savingsToggleText,
+                      lendingAction === 'lend' && styles.savingsToggleTextActive,
+                    ]}
+                  >
+                    Lend
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.savingsToggleOption,
+                    lendingAction === 'repaid' && styles.savingsToggleOptionActive,
+                  ]}
+                  onPress={() => setLendingAction('repaid')}
+                >
+                  <Text
+                    style={[
+                      styles.savingsToggleText,
+                      lendingAction === 'repaid' && styles.savingsToggleTextActive,
+                    ]}
+                  >
+                    Repaid
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.fieldLabelMuted}>PERSON</Text>
+              <View style={styles.borrowerRow}>
+                {borrowers.map((b) => {
+                  const selected = borrowerId === b.id;
+                  return (
+                    <TouchableOpacity
+                      key={b.id}
+                      style={[styles.borrowerChip, selected && styles.borrowerChipSelected]}
+                      onPress={() => setBorrowerId(b.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.borrowerChipText,
+                          selected && styles.borrowerChipTextSelected,
+                        ]}
+                      >
+                        {b.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity
+                  style={[styles.borrowerChip, styles.addBorrowerChip]}
+                  onPress={() => setAddBorrowerModalVisible(true)}
+                >
+                  <Text style={styles.addBorrowerChipText}>+ Add Person</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
           <Text style={styles.fieldLabelMuted}>NOTE (OPTIONAL)</Text>
           <View style={styles.noteWrap}>
             <Text style={styles.noteIcon}>📝</Text>
@@ -592,6 +694,12 @@ export default function QuickLogScreen() {
         categoryCount={categories.length}
         onSave={addCategory}
         onClose={() => setAddCategoryModalVisible(false)}
+      />
+
+      <AddBorrowerModal
+        visible={addBorrowerModalVisible}
+        onSave={(name) => setBorrowerId(addBorrower(name))}
+        onClose={() => setAddBorrowerModalVisible(false)}
       />
 
       <DatePickerModal
@@ -779,6 +887,25 @@ const createStyles = (theme: AppTheme) => StyleSheet.create({
   savingsToggleOptionActive: { backgroundColor: theme.navy },
   savingsToggleText: { fontSize: 13, fontWeight: '600', color: theme.textMuted },
   savingsToggleTextActive: { color: '#FFFFFF' },
+  borrowerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  borrowerChip: {
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  borrowerChipSelected: { backgroundColor: theme.navy, borderColor: theme.navy },
+  borrowerChipText: { fontSize: 13, fontWeight: '600', color: theme.text },
+  borrowerChipTextSelected: { color: '#FFFFFF' },
+  addBorrowerChip: { borderStyle: 'dashed', backgroundColor: theme.background },
+  addBorrowerChipText: { fontSize: 13, fontWeight: '600', color: theme.textMuted },
   noteWrap: {
     flexDirection: 'row',
     alignItems: 'center',
