@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <base href="/MyDEL-V2/" />
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no, viewport-fit=cover" />
+    <title>MyDEL</title>
+
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#0F2C59" />
+    <meta name="background-color" content="#F4F6FB" />
+
+    <!-- iOS "Add to Home Screen" support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MyDEL" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
+    <style id="expo-reset">
+      /* These styles make the body full-height. iOS Safari (especially in standalone
+         PWA mode) can compute 100% height short of the real viewport, leaving a gap
+         at the bottom safe area that shows the browser's default white paint instead
+         of the app — -webkit-fill-available covers that shortfall. */
+      html,
+      body {
+        height: 100%;
+        height: -webkit-fill-available;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+        min-height: 100vh;
+        min-height: -webkit-fill-available;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        min-height: 100vh;
+        min-height: -webkit-fill-available;
+        flex: 1;
+      }
+    </style>
+  <link rel="icon" href="favicon.ico" /></head>
+
+  <body>
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <script>
+      // GitHub Pages has no server-side rewrite for client-side routes, so a hard navigation to
+      // e.g. /MyDEL/Tabs/History (as a PWA home-screen shortcut does) 404s. 404.html redirects
+      // here with the intended path in a query param; restore it before React Navigation reads
+      // location.pathname so it lands on the right screen instead of always Quick Log.
+      // 404.html redirects to this exact page (this repo's hosting prefix + no extra path), so
+      // location.pathname at this point already IS that prefix — no need to hardcode it here.
+      (function () {
+        var params = new URLSearchParams(location.search);
+        var redirect = params.get('redirect');
+        if (redirect) {
+          params.delete('redirect');
+          var qs = params.toString();
+          var newUrl = location.pathname + redirect + (qs ? '?' + qs : '') + location.hash;
+          history.replaceState(null, null, newUrl);
+        }
+      })();
+    </script>
+    <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('sw.js').catch(() => {});
+        });
+        // skipWaiting() in sw.js means a new worker activates immediately rather than sitting in
+        // "waiting" — so `controllerchange` (fired when the controlling worker actually changes)
+        // is the reliable update signal here, not the usual registration.waiting check.
+        var hadController = !!navigator.serviceWorker.controller;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (hadController) {
+            window.dispatchEvent(new Event('mydel:update-available'));
+          }
+          hadController = true;
+        });
+      }
+    </script>
+  <script src="_expo/static/js/web/index-2f1b9f78da97e8ebc1c8ac2dae590ec5.js" defer></script>
+</body>
+</html>
