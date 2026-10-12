@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>MyDEL</title>
+    <script>
+      // GitHub Pages serves this for any path it doesn't have a file for — which is every
+      // client-side route (e.g. a PWA home-screen shortcut hard-navigating to /MyDEL/Tabs/History).
+      // Redirect to index.html with the intended path in a query param; its restore script
+      // rewrites the URL back before the app boots, so React Navigation sees the right route.
+      // The hosting prefix (repo name) is taken from the URL itself rather than hardcoded, so
+      // the same file works for any repo this gets deployed under (e.g. a backup copy hosted
+      // under a different name).
+      var match = location.pathname.match(/^\/([^/]+)\//);
+      var prefix = match ? '/' + match[1] + '/' : '/';
+      var path = location.pathname.slice(prefix.length);
+      location.replace(
+        prefix + '?redirect=' + encodeURIComponent(path) +
+          (location.search ? '&' + location.search.slice(1) : '') +
+          location.hash
+      );
+    </script>
+  </head>
+  <body></body>
+</html>
